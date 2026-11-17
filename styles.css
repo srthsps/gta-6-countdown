@@ -289,6 +289,22 @@ main { padding-inline: clamp(16px, 4vw, 48px); }
 }
 .select-wrap select option, .select-wrap select optgroup { background: #1a0533; color: var(--text); }
 
+.install {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--faint);
+  background: rgba(13, 2, 33, 0.7);
+  cursor: pointer;
+  animation: pop 0.5s var(--ease);
+  transition: border-color 0.15s;
+}
+.install:hover, .install:focus-visible { outline: none; border-color: var(--hot); }
+.install svg { width: 18px; height: 18px; fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
 /* ---------- Panels ---------- */
 
 .panel {

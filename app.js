@@ -598,6 +598,28 @@
   bindReveal();
   syncClock().then(schedule);
 
+  // ---------------------------------------------------------------------------
+  // PWA: offline support + install button (shown only when the browser offers it)
+  // ---------------------------------------------------------------------------
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    navigator.serviceWorker.register("sw.js").catch(() => { /* offline support is optional */ });
+  }
+  let installPrompt = null;
+  const installBtn = $("#installBtn");
+  addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    installBtn.hidden = false;
+  });
+  installBtn.addEventListener("click", async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    installPrompt = null;
+    installBtn.hidden = true;
+  });
+  addEventListener("appinstalled", () => { installBtn.hidden = true; });
+
   setInterval(() => syncClock().then(schedule), 10 * 60 * 1000);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) clearTimeout(timer);
