@@ -3,24 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>GTA VI World Countdown</title>
+  <title>GTA VI Countdown</title>
   <meta name="description" content="Live GTA 6 launch countdown for every country — November 19, 2026.">
   <meta name="theme-color" content="#0d0221">
   <script>document.documentElement.classList.add('js')</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Animated synthwave backdrop -->
   <div class="scene" aria-hidden="true">
-    <div class="sky"></div>
+    <div class="sun-glow"></div>
     <div class="sun"></div>
     <svg class="palm palm-l" viewBox="0 0 200 400"><use href="#palm"/></svg>
     <svg class="palm palm-r" viewBox="0 0 200 400"><use href="#palm"/></svg>
-    <div class="floor"></div>
-    <canvas id="dust"></canvas>
+    <div class="floor"><div class="lines"></div></div>
   </div>
   <canvas id="confetti" aria-hidden="true"></canvas>
 
@@ -38,102 +36,59 @@
     </defs>
   </svg>
 
-  <header class="topbar">
-    <a class="brand" href="#top" aria-label="GTA VI Countdown home">
-      <span class="brand-vi">VI</span><span class="brand-txt">World Countdown</span>
-    </a>
-    <nav>
-      <a href="#timeline">Rollout</a>
-      <a href="#world">Countries</a>
-    </nav>
-  </header>
-
-  <main id="top">
+  <main>
     <section class="hero">
-      <p class="eyebrow reveal">Welcome to Leonida · November 19, 2026</p>
+      <p class="date reveal">Nov 19 · 2026</p>
       <h1 class="title reveal">
         <span class="t-gta">Grand Theft Auto</span>
         <span class="t-vi">VI</span>
       </h1>
 
-      <div class="picker reveal">
-        <label for="zonePick">Counting down for</label>
-        <div class="select-wrap"><select id="zonePick"></select></div>
-      </div>
-
-      <div class="hero-cd reveal" id="heroCd" role="timer" aria-live="off">
-        <div class="unit"><div class="digits" data-u="d"></div><span>Days</span></div>
-        <i class="sep">:</i>
-        <div class="unit"><div class="digits" data-u="h"></div><span>Hours</span></div>
-        <i class="sep">:</i>
-        <div class="unit"><div class="digits" data-u="m"></div><span>Minutes</span></div>
-        <i class="sep">:</i>
-        <div class="unit"><div class="digits" data-u="s"></div><span>Seconds</span></div>
+      <div class="hero-cd reveal" id="heroCd" role="timer">
+        <div class="unit"><div class="digits" data-u="d"></div><span>days</span></div>
+        <div class="unit"><div class="digits" data-u="h"></div><span>hrs</span></div>
+        <div class="unit"><div class="digits" data-u="m"></div><span>min</span></div>
+        <div class="unit"><div class="digits" data-u="s"></div><span>sec</span></div>
       </div>
       <button class="live-banner" id="heroLive" type="button" hidden>Out now</button>
 
-      <p class="hero-sub reveal" id="heroSub"></p>
-      <div class="next-up reveal" id="nextUp"></div>
-      <p class="sync reveal" id="syncStatus" aria-live="polite"></p>
+      <p class="early" id="heroEarly" hidden></p>
+
+      <div class="where reveal">
+        <span class="sync" id="syncDot" role="img"></span>
+        <div class="select-wrap"><select id="zonePick" aria-label="Location"></select></div>
+      </div>
     </section>
 
-    <section id="timeline" class="panel">
-      <div class="sec-head">
-        <h2>Global rollout</h2>
-        <p id="tlSummary"></p>
-      </div>
+    <section class="panel" aria-label="Global rollout">
       <div class="timeline">
         <div class="tl-track">
           <div class="tl-fill" id="tlFill"></div>
-          <div class="tl-now" id="tlNow"><span>Now</span></div>
+          <div class="tl-now" id="tlNow"></div>
           <div class="tl-dots" id="tlDots"></div>
         </div>
-        <div class="tl-labels"><span id="tlStart"></span><span id="tlEnd"></span></div>
       </div>
     </section>
 
-    <section id="world" class="panel">
-      <div class="sec-head">
-        <h2>Countdown by country</h2>
-        <p>Each country unlocks at midnight on its store clock. Countries with several time zones unlock everywhere at once, so places west of the store zone (Los Angeles, Vancouver, Perth, Manaus…) get it the night before.</p>
-      </div>
-
+    <section class="panel" id="world" aria-label="Countries">
       <div class="controls">
         <div class="search">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
-          <input type="search" id="search" placeholder="Search country or city…" autocomplete="off" aria-label="Search countries">
+          <input type="search" id="search" placeholder="Search" autocomplete="off" aria-label="Search countries">
         </div>
-        <div class="chips" id="regionChips" role="group" aria-label="Filter by region">
+        <div class="chips" id="regionChips" role="group" aria-label="Region">
           <button type="button" data-region="all" class="on">All</button>
           <button type="button" data-region="americas">Americas</button>
           <button type="button" data-region="europe">Europe</button>
-          <button type="button" data-region="mea">Middle East &amp; Africa</button>
+          <button type="button" data-region="mea">Africa &amp; ME</button>
           <button type="button" data-region="apac">Asia-Pacific</button>
         </div>
-        <div class="controls-row">
-          <div class="chips" id="statusChips" role="group" aria-label="Filter by status">
-            <button type="button" data-status="all" class="on">All</button>
-            <button type="button" data-status="upcoming">Upcoming</button>
-            <button type="button" data-status="live">Out now</button>
-          </div>
-          <div class="select-wrap small">
-            <select id="sort" aria-label="Sort">
-              <option value="launch">Launch order</option>
-              <option value="name">A–Z</option>
-            </select>
-          </div>
-        </div>
       </div>
-
       <div class="grid" id="grid"></div>
-      <p class="empty" id="empty" hidden>No regions match that search.</p>
     </section>
   </main>
 
-  <footer>
-    <p>Fan-made countdown, not affiliated with Rockstar Games or Take-Two Interactive.</p>
-    <p>Release date: November 19, 2026 (PS5 &amp; Xbox Series X|S). Unlock times follow reported store schedules (midnight on each country's store clock), not an official Rockstar list, so check your console's countdown too. The countdown is synced to an internet time server, so it stays exact even if your device clock is off.</p>
-  </footer>
+  <footer>Fan-made · not affiliated with Rockstar Games</footer>
 
   <script src="app.js"></script>
 </body>

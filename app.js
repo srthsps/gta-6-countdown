@@ -176,27 +176,22 @@
     return t;
   }
 
-  function gmtLabel(tz, ts) {
-    const mins = Math.round(tzOffset(tz, ts) / 60000);
-    const sign = mins < 0 ? "−" : "+";
-    const a = Math.abs(mins);
-    return `GMT${sign}${Math.floor(a / 60)}${a % 60 ? ":" + String(a % 60).padStart(2, "0") : ""}`;
-  }
-
   // Minutes between the unlock instant and local midnight Nov 19 in `tz`.
   function minutesFromLocalMidnight(tz, t) {
     return Math.round((t - midnightIn(tz)) / 60000);
   }
 
-  function shiftLabel(mins) {
+  // "3h early" / "1h 30m later", or compact "−3h" / "+1h30m".
+  function shiftLabel(mins, compact) {
     if (!mins) return "";
     const a = Math.abs(mins);
-    const txt = `${Math.floor(a / 60) ? Math.floor(a / 60) + "h" : ""}${a % 60 ? " " + (a % 60) + "m" : ""}`.trim();
+    const h = Math.floor(a / 60), m = a % 60;
+    if (compact) return `${mins < 0 ? "−" : "+"}${h ? h + "h" : ""}${m ? m + "m" : ""}`;
+    const txt = `${h ? h + "h" : ""}${m ? " " + m + "m" : ""}`.trim();
     return mins < 0 ? `${txt} early` : `${txt} later`;
   }
 
   const fmt = {
-    clock: (ts, tz) => dtf(tz, { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(ts),
     when: (ts, tz) => dtf(tz, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" }).format(ts),
     short: (ts, tz) => dtf(tz, { weekday: "short", hour: "numeric", minute: "2-digit" }).format(ts),
     day: (ts, tz) => dtf(tz, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(ts),
@@ -213,13 +208,6 @@
     };
   }
 
-  function elapsedLabel(ms) {
-    const mins = Math.floor(ms / 60000);
-    const d = Math.floor(mins / 1440), h = Math.floor((mins % 1440) / 60), m = mins % 60;
-    if (d) return `${d}d ${h}h`;
-    if (h) return `${h}h ${m}m`;
-    return `${m}m ${Math.floor((ms % 60000) / 1000)}s`;
-  }
 
   // ---------------------------------------------------------------------------
   // Model
@@ -235,7 +223,7 @@
       ...c, storeTz, t, cities,
       search: (c.name + " " + c.code + " " + c.cities.map((x) => x[0]).join(" ")).toLowerCase(),
     };
-  });
+  }).sort((a, b) => a.t - b.t || a.name.localeCompare(b.name));
   const byCode = Object.fromEntries(countries.map((c) => [c.code, c]));
 
   let userCity = null;
@@ -244,44 +232,18 @@
     if (hit) { userCity = { country: c, city: hit }; break; }
   }
 
-  const tMin = Math.min(...countries.map((c) => c.t));
-  const tMax = Math.max(...countries.map((c) => c.t));
+  const tMin = countries[0].t;
+  const tMax = countries[countries.length - 1].t;
 
   const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const $ = (s) => document.querySelector(s);
+  const pad = (n) => String(n).padStart(2, "0");
   const store = {
     get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } },
     set(k, v) { try { localStorage.setItem(k, v); } catch (_) { /* storage unavailable */ } },
   };
-
-  // ---------------------------------------------------------------------------
-  // Digits
-  // ---------------------------------------------------------------------------
-  function setDigits(el, str, animate, big) {
-    if (el.childElementCount !== str.length) {
-      el.textContent = "";
-      for (let i = 0; i < str.length; i++) {
-        const s = document.createElement("span");
-        s.className = "dg";
-        el.appendChild(s);
-      }
-    }
-    for (let i = 0; i < str.length; i++) {
-      const s = el.children[i];
-      if (s.textContent === str[i]) continue;
-      const first = s.textContent === "";
-      s.textContent = str[i];
-      if (animate && !first && !reduced) {
-        s.animate(
-          big
-            ? [{ transform: "translateY(-45%) rotateX(75deg)", opacity: 0, filter: "blur(4px)" }, { transform: "none", opacity: 1, filter: "none" }]
-            : [{ transform: "translateY(-70%)", opacity: 0 }, { transform: "none", opacity: 1 }],
-          { duration: big ? 480 : 320, easing: "cubic-bezier(.2,.8,.2,1)" }
-        );
-      }
-    }
-  }
-  const pad = (n) => String(n).padStart(2, "0");
+  const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" };
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ESC[c]);
 
   // ---------------------------------------------------------------------------
   // Hero
@@ -291,12 +253,28 @@
   let heroTarget = null; // { country, city } or { custom: tz }
   let heroWasLive = null;
 
+  // Only the changed digits get a short transform/opacity roll.
+  function setDigits(el, str, animate) {
+    if (el.childElementCount !== str.length) {
+      el.textContent = "";
+      for (let i = 0; i < str.length; i++) el.appendChild(document.createElement("span")).className = "dg";
+    }
+    for (let i = 0; i < str.length; i++) {
+      const s = el.children[i];
+      if (s.textContent === str[i]) continue;
+      const first = s.textContent === "";
+      s.textContent = str[i];
+      if (animate && !first && !reduced) {
+        s.animate([{ transform: "translateY(-30%)", opacity: 0 }, { transform: "none", opacity: 1 }],
+          { duration: 380, easing: "cubic-bezier(.2,.8,.2,1)" });
+      }
+    }
+  }
+
   function buildPicker() {
     const auto = document.createElement("option");
     auto.value = "auto";
-    auto.textContent = userCity
-      ? `My location (${userCity.city.name}, ${userCity.country.name})`
-      : `My location (${userTz.replace(/_/g, " ")})`;
+    auto.textContent = "📍 " + (userCity ? userCity.city.name : userTz.split("/").pop().replace(/_/g, " "));
     zonePick.appendChild(auto);
     [...countries].sort((a, b) => a.name.localeCompare(b.name)).forEach((c) => {
       const g = document.createElement("optgroup");
@@ -304,7 +282,7 @@
       c.cities.forEach((city) => {
         const o = document.createElement("option");
         o.value = `${c.code}|${city.i}`;
-        o.textContent = c.cities.length > 1 ? `${c.name} — ${city.name}` : `${c.name} (${city.name})`;
+        o.textContent = c.cities.length > 1 ? `${c.name} · ${city.name}` : c.name;
         g.appendChild(o);
       });
       zonePick.appendChild(g);
@@ -329,52 +307,36 @@
       heroTarget = { country: byCode[code], city: byCode[code].cities[+i] };
     }
     document.querySelectorAll(".card.mine").forEach((el) => el.classList.remove("mine"));
-    if (heroTarget.country) cards.get(heroTarget.country.code)?.el.classList.add("mine");
-    renderHeroSub();
+    if (heroTarget.country) cards.get(heroTarget.country.code).el.classList.add("mine");
+
+    // The one extra line worth showing: this city unlocks before local midnight.
+    const early = $("#heroEarly");
+    const shift = heroTarget.city ? heroTarget.city.shift : 0;
+    early.hidden = shift >= 0;
+    if (shift < 0) early.textContent = `Unlocks ${fmt.day(heroTarget.country.t, heroTarget.city.tz)} · ${shiftLabel(shift)}`;
   }
 
-  function heroInfo() {
-    if (heroTarget.custom) {
-      const tz = heroTarget.custom;
-      return { t: midnightIn(tz), tz, label: tz.replace(/_/g, " "), custom: true };
-    }
-    const { country, city } = heroTarget;
-    return { t: country.t, tz: city.tz, label: `${city.name}, ${country.name}`, country, city };
-  }
-
-  function renderHeroSub() {
-    const info = heroInfo();
-    const parts = [];
-    parts.push(`Unlocks <strong>${fmt.when(info.t, info.tz)}</strong> in ${esc(info.label)}`);
-    if (info.city && info.city.shift < 0) {
-      parts.push(`<span class="pill early">${shiftLabel(info.city.shift)}: ${esc(info.country.name)} unlocks on ${esc(info.country.cities[0].name)} time</span>`);
-    } else if (info.city && info.city.shift > 0) {
-      parts.push(`<span class="pill late">${shiftLabel(info.city.shift)} than local midnight</span>`);
-    }
-    if (info.tz !== userTz) parts.push(`Your clock: <strong>${fmt.when(info.t, userTz)}</strong>`);
-    parts.push(`<span class="utc">${new Date(info.t).toISOString().replace("T", " ").replace(".000Z", " UTC")}</span>`);
-    if (info.custom) parts.push(`<em>Your time zone isn't in our list, so we're assuming local midnight.</em>`);
-    $("#heroSub").innerHTML = parts.join("<br>");
+  function heroTime() {
+    return heroTarget.custom ? midnightIn(heroTarget.custom) : heroTarget.country.t;
   }
 
   function renderHero(n) {
-    const info = heroInfo();
-    const left = info.t - n;
+    const left = heroTime() - n;
     const live = left <= 0;
     $("#heroCd").hidden = live;
     $("#heroLive").hidden = !live;
     if (!live) {
       const p = split(left);
-      setDigits(heroDigits.d, pad(p.d), true, true);
-      setDigits(heroDigits.h, pad(p.h), true, true);
-      setDigits(heroDigits.m, pad(p.m), true, true);
-      setDigits(heroDigits.s, pad(p.s), true, true);
-      document.title = `${p.d}d ${pad(p.h)}:${pad(p.m)}:${pad(p.s)} · GTA VI Countdown`;
+      setDigits(heroDigits.d, pad(p.d), true);
+      setDigits(heroDigits.h, pad(p.h), true);
+      setDigits(heroDigits.m, pad(p.m), true);
+      setDigits(heroDigits.s, pad(p.s), true);
+      document.title = `${p.d}d ${pad(p.h)}:${pad(p.m)}:${pad(p.s)} · GTA VI`;
     } else {
-      document.title = "GTA VI is OUT NOW";
+      document.title = "GTA VI · Out now";
     }
-    if (live && heroWasLive === false) confetti(260);
-    if (live && heroWasLive === null) setTimeout(() => confetti(160), 600);
+    if (live && heroWasLive === false) confetti(240);
+    if (live && heroWasLive === null) setTimeout(() => confetti(140), 600);
     heroWasLive = live;
   }
 
@@ -384,53 +346,32 @@
   const grid = $("#grid");
   const cards = new Map();
 
-  function esc(s) {
-    return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  }
-
   function buildCards() {
-    countries.forEach((c) => {
+    countries.forEach((c, idx) => {
       const el = document.createElement("article");
       el.className = "card";
       el.id = "c-" + c.code;
-      el.dataset.region = c.region;
-      const cityRows = c.cities.length > 1
-        ? `<ul class="cities">${c.cities.map((x) => `
-            <li><span>${esc(x.name)}</span><b>${fmt.day(c.t, x.tz)}</b>${x.shift ? `<em class="${x.shift < 0 ? "early" : "late"}">${shiftLabel(x.shift)}</em>` : `<em class="store">Store clock</em>`}</li>`).join("")}
-          </ul>`
+      const zones = c.cities.length > 1
+        ? `<details class="zones"><summary>${c.cities.length} time zones</summary><ul>${c.cities.map((x) => `
+            <li><span>${esc(x.name)}</span><b>${fmt.day(c.t, x.tz)}</b><em class="${x.shift < 0 ? "early" : x.shift > 0 ? "late" : ""}">${shiftLabel(x.shift, true)}</em></li>`).join("")}
+          </ul></details>`
         : "";
       el.innerHTML = `
         <div class="card-head">
-          <img class="flag" src="https://flagcdn.com/w80/${c.code}.png" alt="" width="40" height="28" loading="lazy" decoding="async">
-          <div class="card-title">
-            <h3>${esc(c.name)}</h3>
-            <p>${esc(c.cities[0].name)} · ${gmtLabel(c.storeTz, c.t)}</p>
-          </div>
-          <span class="badge">Soon</span>
+          <img class="flag" src="https://flagcdn.com/w80/${c.code}.png" alt="" width="32" height="22" loading="lazy" decoding="async">
+          <h3>${esc(c.name)}</h3>
         </div>
-        <div class="cd">
-          <div><span class="digits" data-u="d"></span><span>Days</span></div>
-          <div><span class="digits" data-u="h"></span><span>Hrs</span></div>
-          <div><span class="digits" data-u="m"></span><span>Min</span></div>
-          <div><span class="digits" data-u="s"></span><span>Sec</span></div>
-        </div>
-        <div class="live-msg"><b>Out now</b><small></small></div>
+        <div class="left"></div>
         <div class="bar"><i></i></div>
-        <div class="card-foot">
-          <span>Local now <b class="clock"></b></span>
-          <span>Your time <b>${fmt.short(c.t, userTz)}</b></span>
-        </div>
-        ${cityRows}`;
+        ${zones}`;
+      el.title = `${fmt.when(c.t, userTz)} your time`;
       el.querySelector(".flag").addEventListener("error", (e) => { e.target.style.visibility = "hidden"; }, { once: true });
-      const ref = {
-        el, c, visible: false, state: "",
-        d: el.querySelector('[data-u="d"]'), h: el.querySelector('[data-u="h"]'),
-        m: el.querySelector('[data-u="m"]'), s: el.querySelector('[data-u="s"]'),
-        clock: el.querySelector(".clock"), bar: el.querySelector(".bar i"),
-        badge: el.querySelector(".badge"), liveMsg: el.querySelector(".live-msg small"),
-      };
-      cards.set(c.code, ref);
-      bindTilt(el);
+      el.style.transitionDelay = `${(idx % 8) * 30}ms`;
+      grid.appendChild(el);
+      cards.set(c.code, {
+        el, c, visible: false, state: "", text: "",
+        left: el.querySelector(".left"), bar: el.querySelector(".bar i"),
+      });
     });
   }
 
@@ -441,64 +382,49 @@
     if (state !== ref.state) {
       ref.el.classList.toggle("live", state === "live");
       ref.el.classList.toggle("soon", state === "soon");
-      ref.badge.textContent = state === "live" ? "Out now" : state === "soon" ? "< 1 hour" : "Upcoming";
       if (ref.state && state === "live" && ref.visible) burstAt(ref.el);
       ref.state = state;
+      ref.text = "";
     }
-    if (!ref.visible && ref.d.childElementCount) return; // offscreen: skip work
-    ref.clock.textContent = fmt.clock(n, ref.c.storeTz);
+    if (!ref.visible && ref.text) return; // offscreen: skip work
+    let html;
     if (state === "live") {
-      ref.liveMsg.textContent = `Unlocked ${elapsedLabel(-left)} ago`;
-      ref.bar.style.width = "100%";
-      return;
+      html = "Out now";
+      ref.bar.style.transform = "none";
+    } else {
+      const p = split(left);
+      html = `${p.d ? `${p.d}<small>d</small>` : ""}${pad(p.h)}:${pad(p.m)}:${pad(p.s)}`;
+      ref.bar.style.transform = `scaleX(${Math.max(0, Math.min(1, 1 - left / WEEK)).toFixed(4)})`;
     }
-    const p = split(left);
-    setDigits(ref.d, pad(p.d), ref.visible);
-    setDigits(ref.h, pad(p.h), ref.visible);
-    setDigits(ref.m, pad(p.m), ref.visible);
-    setDigits(ref.s, pad(p.s), ref.visible);
-    ref.bar.style.width = `${Math.max(0, Math.min(100, (1 - left / WEEK) * 100)).toFixed(3)}%`;
+    if (html !== ref.text) { ref.left.innerHTML = html; ref.text = html; }
   }
 
-  // Filtering & sorting
-  const filters = { q: "", region: store.get("vi-region") || "all", status: "all", sort: "launch" };
+  let filterQ = "";
+  let filterRegion = store.get("vi-region") || "all";
 
   function applyFilters() {
-    const n = now();
-    const list = [...cards.values()].sort((a, b) =>
-      filters.sort === "name" ? a.c.name.localeCompare(b.c.name) : a.c.t - b.c.t || a.c.name.localeCompare(b.c.name));
-    let shown = 0;
-    list.forEach((ref) => {
-      const live = ref.c.t <= n;
-      const ok = (!filters.q || ref.c.search.includes(filters.q))
-        && (filters.region === "all" || ref.c.region === filters.region)
-        && (filters.status === "all" || (filters.status === "live") === live);
-      ref.el.hidden = !ok;
-      if (ok) ref.el.style.setProperty("--i", shown++ % 12);
-      grid.appendChild(ref.el);
+    cards.forEach((ref) => {
+      ref.el.hidden = !((!filterQ || ref.c.search.includes(filterQ))
+        && (filterRegion === "all" || ref.c.region === filterRegion));
     });
-    $("#empty").hidden = shown > 0;
+  }
+
+  function syncChips() {
+    $("#regionChips").querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.region === filterRegion));
   }
 
   function bindControls() {
-    $("#search").addEventListener("input", (e) => { filters.q = e.target.value.trim().toLowerCase(); applyFilters(); });
-    $("#sort").addEventListener("change", (e) => { filters.sort = e.target.value; applyFilters(); });
-    const chipGroup = (sel, key, persist) => {
-      const box = $(sel);
-      const sync = () => box.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset[key] === filters[key]));
-      box.addEventListener("click", (e) => {
-        const b = e.target.closest("button");
-        if (!b) return;
-        filters[key] = b.dataset[key];
-        if (persist) store.set(persist, filters[key]);
-        sync();
-        applyFilters();
-      });
-      sync();
-    };
-    chipGroup("#regionChips", "region", "vi-region");
-    chipGroup("#statusChips", "status");
-    $("#heroLive").addEventListener("click", () => confetti(220));
+    $("#search").addEventListener("input", (e) => { filterQ = e.target.value.trim().toLowerCase(); applyFilters(); });
+    $("#regionChips").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      filterRegion = b.dataset.region;
+      store.set("vi-region", filterRegion);
+      syncChips();
+      applyFilters();
+    });
+    syncChips();
+    $("#heroLive").addEventListener("click", () => confetti(200));
   }
 
   // ---------------------------------------------------------------------------
@@ -512,27 +438,26 @@
       groups.get(c.t).push(c);
     });
     const box = $("#tlDots");
-    [...groups.entries()].sort((a, b) => a[0] - b[0]).forEach(([t, list]) => {
+    groups.forEach((list, t) => {
       const b = document.createElement("button");
       b.type = "button";
       b.className = "tl-dot";
       b.style.left = `${((t - tMin) / (tMax - tMin)) * 100}%`;
-      b.dataset.label = `${list.map((c) => c.name).join(", ")}\n${fmt.when(t, userTz)} your time`;
+      b.dataset.label = `${list.map((c) => c.name).join(", ")}\n${fmt.short(t, userTz)}`;
       b.setAttribute("aria-label", b.dataset.label.replace("\n", ", "));
       b.addEventListener("click", () => focusCard(list[0].code));
       box.appendChild(b);
-      tlGroups.push({ t, list, el: b });
+      tlGroups.push({ t, el: b });
     });
-    $("#tlStart").textContent = `First: ${countries.find((c) => c.t === tMin).name} · ${fmt.when(tMin, userTz)}`;
-    $("#tlEnd").textContent = `Last: ${countries.find((c) => c.t === tMax).name} · ${fmt.when(tMax, userTz)}`;
   }
 
   function focusCard(code) {
     const ref = cards.get(code);
     if (ref.el.hidden) {
-      filters.q = ""; filters.region = "all"; filters.status = "all";
+      filterQ = "";
+      filterRegion = "all";
       $("#search").value = "";
-      document.querySelectorAll("#regionChips button, #statusChips button").forEach((b) => b.classList.toggle("on", (b.dataset.region || b.dataset.status) === "all"));
+      syncChips();
       applyFilters();
     }
     ref.el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" });
@@ -541,56 +466,32 @@
     ref.el.classList.add("flash");
   }
 
+  const tlFill = $("#tlFill");
+  const tlNow = $("#tlNow");
   function renderTimeline(n) {
-    const frac = (n - tMin) / (tMax - tMin);
-    const pct = Math.max(0, Math.min(1, frac)) * 100;
-    $("#tlFill").style.width = pct + "%";
-    const nowEl = $("#tlNow");
-    nowEl.style.left = pct + "%";
-    nowEl.querySelector("span").textContent = frac < 0 ? "Now ◂" : frac > 1 ? "▸ Now" : "Now";
-    let live = 0;
-    tlGroups.forEach((g) => { const on = g.t <= n; g.el.classList.toggle("live", on); if (on) live += g.list.length; });
-    const sum = $("#tlSummary");
-    if (live === 0) {
-      const p = split(tMin - n);
-      sum.textContent = `The rollout starts in ${p.d}d ${pad(p.h)}:${pad(p.m)}:${pad(p.s)} with New Zealand, then follows midnight west across ${countries.length} countries over ${Math.round((tMax - tMin) / 3600000)} hours.`;
-    } else if (live === countries.length) {
-      sum.textContent = `Every one of the ${countries.length} countries is live. Welcome to Leonida.`;
-    } else {
-      sum.textContent = `${live} of ${countries.length} countries are live, and midnight keeps moving west.`;
-    }
-
-    const next = countries.filter((c) => c.t > n).sort((a, b) => a.t - b.t)[0];
-    const nu = $("#nextUp");
-    if (next) {
-      const p = split(next.t - n);
-      const html = `<span class="dot"></span>Next unlock: <img src="https://flagcdn.com/w40/${next.code}.png" alt=""> <strong>${esc(next.name)}</strong> in <span class="mono">${p.d ? p.d + "d " : ""}${pad(p.h)}:${pad(p.m)}:${pad(p.s)}</span>`;
-      if (nu.dataset.code !== next.code) { nu.innerHTML = html; nu.dataset.code = next.code; }
-      else nu.querySelector(".mono").textContent = `${p.d ? p.d + "d " : ""}${pad(p.h)}:${pad(p.m)}:${pad(p.s)}`;
-    } else {
-      nu.innerHTML = `<span class="dot"></span>GTA VI is live worldwide`;
-      nu.dataset.code = "";
-    }
+    const frac = Math.max(0, Math.min(1, (n - tMin) / (tMax - tMin)));
+    tlFill.style.transform = `scaleX(${frac.toFixed(5)})`;
+    tlNow.style.left = `${frac * 100}%`;
+    tlGroups.forEach((g) => g.el.classList.toggle("live", g.t <= n));
   }
 
   // ---------------------------------------------------------------------------
-  // Clock sync status
+  // Clock sync indicator (details live in the tooltip)
   // ---------------------------------------------------------------------------
   function renderSync() {
-    const el = $("#syncStatus");
+    const el = $("#syncDot");
     el.className = "sync " + clock.status;
-    if (clock.status === "sim") {
-      el.textContent = `Simulated time (?now=${params.get("now")})`;
-    } else if (clock.status === "pending") {
-      el.textContent = "Syncing with atomic time…";
-    } else if (clock.status === "device") {
-      el.textContent = "Couldn't reach a time server, so this uses your device clock";
-    } else {
+    let label;
+    if (clock.status === "sim") label = `Simulated time (${params.get("now")})`;
+    else if (clock.status === "pending") label = "Syncing clock…";
+    else if (clock.status === "device") label = "Using device clock";
+    else {
       const off = clock.offset / 1000;
-      const drift = Math.abs(off) < 0.05 ? "your device clock is spot on"
-        : `your device clock is ${Math.abs(off).toFixed(2)}s ${off > 0 ? "slow" : "fast"} (corrected)`;
-      el.textContent = `Synced to ${clock.source} ±${Math.max(1, Math.round(clock.error))}ms · ${drift}`;
+      label = `Synced to ${clock.source} (±${Math.max(1, Math.round(clock.error))}ms)` +
+        (Math.abs(off) >= 0.05 ? ` · device clock ${Math.abs(off).toFixed(2)}s ${off > 0 ? "slow" : "fast"}, corrected` : "");
     }
+    el.title = label;
+    el.setAttribute("aria-label", label);
   }
 
   // ---------------------------------------------------------------------------
@@ -602,19 +503,16 @@
     renderHero(n);
     cards.forEach((ref) => renderCard(ref, n));
     renderTimeline(n);
-    if (filters.status !== "all") {
-      const wantLive = filters.status === "live";
-      if ([...cards.values()].some((r) => !r.el.hidden && (r.c.t <= n) !== wantLive)) applyFilters();
-    }
   }
   function schedule() {
     clearTimeout(timer);
+    if (document.hidden) return;
     const n = now();
     timer = setTimeout(() => { tick(); schedule(); }, 1000 - (((n % 1000) + 1000) % 1000) + 4);
   }
 
   // ---------------------------------------------------------------------------
-  // Motion: reveal, tilt, scroll parallax, dust, confetti
+  // Reveal & confetti
   // ---------------------------------------------------------------------------
   function bindReveal() {
     document.querySelectorAll(".reveal").forEach((el, i) => el.style.setProperty("--d", i));
@@ -627,39 +525,14 @@
         ref.visible = e.isIntersecting;
         if (e.isIntersecting) { e.target.classList.add("in"); renderCard(ref, n); }
       });
-    }, { rootMargin: "80px 0px" });
+    }, { rootMargin: "100px 0px" });
     cards.forEach((ref) => io.observe(ref.el));
   }
 
-  const canHover = matchMedia("(hover: hover) and (pointer: fine)").matches;
-  function bindTilt(el) {
-    if (!canHover || reduced) return;
-    el.addEventListener("pointermove", (e) => {
-      const r = el.getBoundingClientRect();
-      const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
-      el.style.setProperty("--ry", `${(x - 0.5) * 8}deg`);
-      el.style.setProperty("--rx", `${(0.5 - y) * 8}deg`);
-      el.style.setProperty("--mx", `${x * 100}%`);
-      el.style.setProperty("--my", `${y * 100}%`);
-    });
-    el.addEventListener("pointerleave", () => {
-      el.style.setProperty("--rx", "0deg");
-      el.style.setProperty("--ry", "0deg");
-    });
-  }
-
-  function bindScroll() {
-    let pending = false;
-    addEventListener("scroll", () => {
-      if (pending) return;
-      pending = true;
-      requestAnimationFrame(() => {
-        document.documentElement.style.setProperty("--scroll", Math.min(scrollY, 1200));
-        pending = false;
-      });
-    }, { passive: true });
-  }
-
+  const confettiCv = $("#confetti");
+  let confettiCtx = null;
+  const bits = [];
+  let confettiRunning = false;
   function fitCanvas(cv) {
     const dpr = Math.min(devicePixelRatio || 1, 2);
     cv.width = innerWidth * dpr;
@@ -668,50 +541,6 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     return ctx;
   }
-
-  function startDust() {
-    if (reduced) return;
-    const cv = $("#dust");
-    let ctx = fitCanvas(cv);
-    const colors = ["255,79,163", "5,217,232", "255,209,102", "255,255,255"];
-    const count = innerWidth < 640 ? 34 : 70;
-    const ps = Array.from({ length: count }, () => spawn(true));
-    function spawn(anywhere) {
-      return {
-        x: Math.random() * innerWidth,
-        y: anywhere ? Math.random() * innerHeight : innerHeight + 10,
-        r: Math.random() * 1.8 + 0.4,
-        vy: Math.random() * 0.35 + 0.1,
-        vx: (Math.random() - 0.5) * 0.15,
-        c: colors[(Math.random() * colors.length) | 0],
-        p: Math.random() * Math.PI * 2,
-      };
-    }
-    addEventListener("resize", () => { ctx = fitCanvas(cv); });
-    (function frame() {
-      if (!document.hidden) {
-        ctx.clearRect(0, 0, innerWidth, innerHeight);
-        for (let i = 0; i < ps.length; i++) {
-          const p = ps[i];
-          p.y -= p.vy; p.x += p.vx; p.p += 0.03;
-          if (p.y < -10) ps[i] = spawn(false);
-          const a = 0.35 + Math.sin(p.p) * 0.3;
-          ctx.beginPath();
-          ctx.fillStyle = `rgba(${p.c},${a})`;
-          ctx.shadowColor = `rgba(${p.c},0.9)`;
-          ctx.shadowBlur = 8;
-          ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-      requestAnimationFrame(frame);
-    })();
-  }
-
-  const confettiCv = $("#confetti");
-  let confettiCtx = null;
-  const bits = [];
-  let confettiRunning = false;
   function confetti(n, ox, oy) {
     if (reduced) return;
     if (!confettiCtx) {
@@ -752,7 +581,7 @@
   }
   function burstAt(el) {
     const r = el.getBoundingClientRect();
-    confetti(60, r.left + r.width / 2, r.top + r.height / 3);
+    confetti(50, r.left + r.width / 2, r.top + r.height / 3);
   }
 
   // ---------------------------------------------------------------------------
@@ -767,12 +596,11 @@
   tick();
   schedule();
   bindReveal();
-  bindScroll();
-  startDust();
   syncClock().then(schedule);
 
   setInterval(() => syncClock().then(schedule), 10 * 60 * 1000);
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) { tick(); schedule(); }
+    if (document.hidden) clearTimeout(timer);
+    else { tick(); schedule(); }
   });
 })();
